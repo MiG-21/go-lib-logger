@@ -1,6 +1,11 @@
 package go_lib_logger
 
-import "go.uber.org/zap"
+import (
+	"os"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
 
 type (
 	Logger struct {
@@ -8,10 +13,20 @@ type (
 	}
 )
 
-func Create(options ...zap.Option) (*Logger, error) {
-	if z, err := zap.NewProductionConfig().Build(options...); err != nil {
-		return nil, err
-	} else {
-		return &Logger{z}, nil
+func NewLogger(encodeAsJSON bool, config zapcore.EncoderConfig, l zapcore.Level, output ...zapcore.WriteSyncer) *Logger {
+	encoder := zapcore.NewConsoleEncoder(config)
+	if encodeAsJSON {
+		encoder = zapcore.NewJSONEncoder(config)
 	}
+
+	var writers []zapcore.WriteSyncer
+	if len(output) == 0 {
+		// set default writer
+		writers = append(writers, os.Stdout)
+	} else {
+		writers = output
+	}
+
+	zapLogger := zap.New(zapcore.NewCore(encoder, zapcore.NewMultiWriteSyncer(writers...), zap.NewAtomicLevelAt(l)))
+	return &Logger{zapLogger}
 }

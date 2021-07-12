@@ -3,13 +3,16 @@ package go_lib_logger_test
 import (
 	"io/ioutil"
 	"net"
+	"os"
 	"testing"
 	"time"
+
+	"go.uber.org/zap/zapcore"
 
 	go_lib_logger "github.com/MiG-21/go-lib-logger"
 )
 
-func TestStatsd(t *testing.T) {
+func TestZapStatsd(t *testing.T) {
 	addr := ":9999"
 	message := "test_foo:1|g|#tag1:1\n"
 	var err error
@@ -30,9 +33,12 @@ func TestStatsd(t *testing.T) {
 		defer func() {
 			_ = std.Close()
 		}()
-		if _, err = std.Gauge("foo", 1, go_lib_logger.Tags{"tag1": "1"}); err != nil {
-			t.Errorf("failed to write to socket: %s", err.Error())
+		config := zapcore.EncoderConfig{
+			MessageKey: "message",
 		}
+		logger := go_lib_logger.NewLogger(true, config, zapcore.InfoLevel, os.Stdout, std)
+		field := std.Field("gauge", "foo", 1, go_lib_logger.Tags{"tag1": "1"})
+		logger.Info("some log message", field)
 	}()
 
 	for {

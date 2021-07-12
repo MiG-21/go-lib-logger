@@ -2,48 +2,56 @@ package go_lib_logger
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net"
 	"time"
 
-	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap"
 )
-
-var (
-	ErrNotConnected = errors.New("cannot send stats, not connected to StatsD server")
-)
-
-type socketType string
-
-type Tags map[string]string
 
 const (
 	udpSocket socketType = "udp"
 	tcpSocket socketType = "tcp"
 )
 
-type StatsdClient struct {
-	zapcore.LevelEnabler
+var (
+	ErrNotConnected = errors.New("cannot send stats, not connected to StatsD server")
 
-	conn     net.Conn
-	addr     string
-	prefix   string
-	sockType socketType
-	timeout  time.Duration
-}
+	statsdKey = []byte("\"statsd\":")
+)
 
-func NewStatsdClient(addr string, prefix string, timeout time.Duration) *StatsdClient {
-	return &StatsdClient{
-		addr:    addr,
-		prefix:  prefix,
-		timeout: timeout,
+type (
+	socketType string
+
+	Tags map[string]string
+
+	StatsdData struct {
+		Type  string      `json:"type"`
+		Name  string      `json:"name"`
+		Value interface{} `json:"value"`
+		Tags  Tags        `json:"tags"`
 	}
-}
 
-func (c *StatsdClient) Enabled(level zapcore.Level) bool {
-	return true
+	StatsdClient struct {
+		conn       net.Conn
+		addr       string
+		prefix     string
+		sockType   socketType
+		timeout    time.Duration
+		sampleRate int
+	}
+)
+
+func NewStatsdClient(addr string, prefix string, timeout time.Duration, sampleRate int) *StatsdClient {
+	return &StatsdClient{
+		addr:       addr,
+		prefix:     prefix,
+		timeout:    timeout,
+		sampleRate: sampleRate,
+	}
 }
 
 func (c *StatsdClient) CreateUDPSocket() error {
@@ -53,6 +61,7 @@ func (c *StatsdClient) CreateUDPSocket() error {
 	}
 	c.conn = conn
 	c.sockType = udpSocket
+
 	return nil
 }
 
@@ -63,6 +72,7 @@ func (c *StatsdClient) CreateTCPSocket() error {
 	}
 	c.conn = conn
 	c.sockType = tcpSocket
+
 	return nil
 }
 
@@ -70,6 +80,7 @@ func (c *StatsdClient) Close() error {
 	if nil == c.conn {
 		return nil
 	}
+
 	return c.conn.Close()
 }
 
@@ -128,19 +139,89 @@ func (c *StatsdClient) Histogram(stat string, delta int64, tags Tags) (int, erro
 	return c.send(stat, "%d|h", delta, tags, 1)
 }
 
-func (c *StatsdClient) Raw(metricString string) (int, error) {
-	if c.sockType == tcpSocket {
-		metricString += "\n"
+// Write WriteSyncer interface implementation
+func (c *StatsdClient) Write(p []byte) (n int, err error) {
+	n = len(p)
+
+	if !bytes.Contains(p, statsdKey) {
+		return
 	}
 
-	return fmt.Fprint(c.conn, metricString)
+	data := struct {
+		Statsd StatsdData `json:"statsd"`
+	}{}
+	if err = json.Unmarshal(p, &data); err != nil {
+		n = 0
+		return
+	}
+
+	if c.sockType == tcpSocket {
+		p = append(p, '\n')
+	}
+
+	sampleRate := float32(1)
+	if c.sampleRate != 100 {
+		sampleRate = float32(c.sampleRate) / 100
+	}
+
+	value := int64(data.Statsd.Value.(float64))
+	switch data.Statsd.Type {
+	case "gauge":
+		if _, err = c.GaugeSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+			n = 0
+		}
+	case "counter":
+		if _, err = c.CounterSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+			n = 0
+		}
+	case "increment":
+		if _, err = c.IncrementSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+			n = 0
+		}
+	case "decrement":
+		if _, err = c.DecrementSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+			n = 0
+		}
+	case "timing":
+		if _, err = c.TimingSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+			n = 0
+		}
+	case "set":
+		if _, err = c.Set(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+			n = 0
+		}
+	case "gauge_delta":
+		if _, err = c.GaugeDelta(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+			n = 0
+		}
+	case "histogram":
+		if _, err = c.Histogram(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+			n = 0
+		}
+	}
+
+	return
+}
+
+// Sync WriteSyncer interface implementation
+func (c *StatsdClient) Sync() error {
+	return nil
+}
+
+func (c *StatsdClient) Field(t, name string, value interface{}, tags Tags) zap.Field {
+	return zap.Any("statsd", map[string]interface{}{
+		"type":  t,
+		"name":  name,
+		"value": value,
+		"tags":  tags,
+	})
 }
 
 func (c *StatsdClient) send(stat string, format string, value interface{}, tags Tags, sampleRate float32) (int, error) {
 	if c.conn == nil {
 		return 0, ErrNotConnected
 	}
-
+	// @TODO sync pool should be added
 	buff := bytes.Buffer{}
 	if _, err := buff.WriteString(c.prefix); err != nil {
 		return 0, err
@@ -171,7 +252,11 @@ func (c *StatsdClient) send(stat string, format string, value interface{}, tags 
 		return 0, err
 	}
 
-	return c.Raw(buff.String())
+	if c.sockType == tcpSocket {
+		buff.WriteByte('\n')
+	}
+
+	return fmt.Fprint(c.conn, buff.String())
 }
 
 func formatTags(tags Tags, buff *bytes.Buffer) (int, error) {
@@ -211,5 +296,6 @@ func formatTags(tags Tags, buff *bytes.Buffer) (int, error) {
 			}
 		}
 	}
+
 	return b, nil
 }
