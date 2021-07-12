@@ -7,6 +7,8 @@ import (
 	"math/rand"
 	"net"
 	"time"
+
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -23,6 +25,8 @@ const (
 )
 
 type StatsdClient struct {
+	zapcore.LevelEnabler
+
 	conn     net.Conn
 	addr     string
 	prefix   string
@@ -36,6 +40,10 @@ func NewStatsdClient(addr string, prefix string, timeout time.Duration) *StatsdC
 		prefix:  prefix,
 		timeout: timeout,
 	}
+}
+
+func (c *StatsdClient) Enabled(level zapcore.Level) bool {
+	return true
 }
 
 func (c *StatsdClient) CreateUDPSocket() error {
