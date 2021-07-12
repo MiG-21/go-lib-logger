@@ -1,13 +1,13 @@
 package go_lib_logger_test
 
 import (
-	"go.uber.org/zap"
 	"io/ioutil"
 	"net"
 	"os"
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	go_lib_logger "github.com/MiG-21/go-lib-logger"
