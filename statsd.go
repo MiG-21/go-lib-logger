@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -21,6 +22,10 @@ var (
 	ErrNotConnected = errors.New("cannot send stats, not connected to StatsD server")
 
 	statsdKey = []byte("\"statsd\":")
+
+	bytesPool = sync.Pool{
+		New: func() interface{} { return bytes.Buffer{} },
+	}
 )
 
 type (
@@ -221,8 +226,13 @@ func (c *StatsdClient) send(stat string, format string, value interface{}, tags 
 	if c.conn == nil {
 		return 0, ErrNotConnected
 	}
-	// @TODO sync pool should be added
-	buff := bytes.Buffer{}
+
+	buff := bytesPool.Get().(bytes.Buffer)
+	defer func() {
+		buff.Reset()
+		bytesPool.Put(buff)
+	}()
+
 	if _, err := buff.WriteString(c.prefix); err != nil {
 		return 0, err
 	}
