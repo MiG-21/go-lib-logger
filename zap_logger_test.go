@@ -1,6 +1,7 @@
 package go_lib_logger_test
 
 import (
+	"go.uber.org/zap"
 	"io/ioutil"
 	"net"
 	"os"
@@ -34,11 +35,19 @@ func TestZapStatsd(t *testing.T) {
 			_ = std.Close()
 		}()
 		config := zapcore.EncoderConfig{
+			TimeKey:    "T",
 			MessageKey: "message",
+			EncodeTime: zapcore.ISO8601TimeEncoder,
 		}
 		logger := go_lib_logger.NewLogger(true, config, zapcore.InfoLevel, os.Stdout, std)
 		field := std.Field("gauge", "foo", 1, go_lib_logger.Tags{"tag1": "1"})
-		logger.Info("some log message", field)
+		with := zap.Any("context", map[string]interface{}{
+			"field1": "field1",
+			"field2": "field2",
+			"field3": "field3",
+			"field4": "field4",
+		})
+		logger.With(with).Info("some log message", field)
 	}()
 
 	for {
