@@ -23,7 +23,7 @@ func TestStatsdTCP(t *testing.T) {
 	}()
 
 	go func() {
-		std := go_lib_logger.NewStatsdClient(addr, "test_", 1*time.Second)
+		std := go_lib_logger.NewStatsdClient(addr, "test_", 1*time.Second, 100)
 		if err = std.CreateTCPSocket(); err != nil {
 			t.Errorf("failed to create socket: %s", err.Error())
 		}
@@ -75,7 +75,7 @@ func TestStatsdUDP(t *testing.T) {
 	}()
 
 	go func() {
-		std := go_lib_logger.NewStatsdClient(addr, "test_", 1*time.Second)
+		std := go_lib_logger.NewStatsdClient(addr, "test_", 1*time.Second, 100)
 		if err = std.CreateUDPSocket(); err != nil {
 			t.Errorf("failed to create socket: %s", err.Error())
 		}
