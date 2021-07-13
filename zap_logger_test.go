@@ -1,9 +1,12 @@
 package go_lib_logger_test
 
 import (
+	"bytes"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +72,42 @@ func TestZapStatsd(t *testing.T) {
 			t.Fatalf("Unexpected message:\nGot:\t\t%s\nExpected:\t%s\n", msg, message)
 		}
 		return // Done
+	}
+}
+
+func TestZapStdout(t *testing.T) {
+	message := `{"message":"some log message","context":{"field1":"field1","field2":"field2","field3":"field3","field4":"field4"}}`
+	// keep backup of the real stdout
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	config := zapcore.EncoderConfig{
+		MessageKey: "message",
+	}
+	logger := go_lib_logger.NewLogger(true, config, zapcore.InfoLevel, os.Stdout)
+	with := zap.Any("context", map[string]interface{}{
+		"field1": "field1",
+		"field2": "field2",
+		"field3": "field3",
+		"field4": "field4",
+	})
+	logger.With(with).Info("some log message")
+
+	outC := make(chan string)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
+
+	// back to normal state
+	_ = w.Close()
+	// restoring the real stdout
+	os.Stdout = old
+	out := <-outC
+
+	if strings.TrimSpace(out) != message {
+		t.Fatalf("Unexpected message:\nGot:\t\t%s\nExpected:\t%s\n", out, message)
 	}
 }
