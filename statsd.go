@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"time"
@@ -247,8 +246,7 @@ func (c *StatsdClient) send(stat string, format string, value interface{}, tags 
 	}
 
 	if sampleRate < 1 {
-		r := rand.New(rand.NewSource(time.Now().Unix()))
-		rNum := r.Float32()
+		rNum := generator.Float32()
 		if rNum <= sampleRate {
 			if _, err := buff.WriteString(fmt.Sprintf("|@%f", sampleRate)); err != nil {
 				return 0, err

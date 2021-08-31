@@ -42,7 +42,7 @@ func TestZapStatsd(t *testing.T) {
 			MessageKey: "message",
 			EncodeTime: zapcore.ISO8601TimeEncoder,
 		}
-		logger := go_lib_logger.NewLogger(true, config, zapcore.InfoLevel, os.Stdout, std)
+		logger := go_lib_logger.NewLogger(true, config, go_lib_logger.InfoLevel, os.Stdout, std)
 		field := std.Field("gauge", "foo", 1, go_lib_logger.Tags{"tag1": "1"})
 		with := zap.Any("context", map[string]interface{}{
 			"field1": "field1",
@@ -85,14 +85,14 @@ func TestZapStdout(t *testing.T) {
 	config := zapcore.EncoderConfig{
 		MessageKey: "message",
 	}
-	logger := go_lib_logger.NewLogger(true, config, zapcore.InfoLevel, os.Stdout)
+	logger := go_lib_logger.NewLogger(true, config, go_lib_logger.InfoLevel, os.Stdout)
 	with := zap.Any("context", map[string]interface{}{
 		"field1": "field1",
 		"field2": "field2",
 		"field3": "field3",
 		"field4": "field4",
 	})
-	logger.With(with).Info("some log message")
+	logger.With(with).Log(go_lib_logger.InfoLevel, "some log message")
 
 	outC := make(chan string)
 	go func() {
