@@ -43,7 +43,7 @@ func TestZapStatsd(t *testing.T) {
 			EncodeTime: zapcore.ISO8601TimeEncoder,
 		}
 		logger := go_lib_logger.NewLogger(true, config, go_lib_logger.InfoLevel, os.Stdout, std)
-		field := std.Field("gauge", "foo", 1, go_lib_logger.Tags{"tag1": "1"})
+		field := std.FieldZap("gauge", "foo", 1, go_lib_logger.Tags{"tag1": "1"})
 		with := zap.Any("context", map[string]interface{}{
 			"field1": "field1",
 			"field2": "field2",
