@@ -26,9 +26,10 @@ type CfgLogger struct {
 
 type ZeroLogger struct {
 	zerolog.Logger
-	parent *ZeroLogger
-	Tags   []string
-	cfg    CfgLogger
+	parent     *ZeroLogger
+	Tags       []string
+	cfg        CfgLogger
+	SampleRate float32
 }
 
 func InitLogger(writers ...io.Writer) *ZeroLogger {
@@ -40,7 +41,8 @@ func InitLogger(writers ...io.Writer) *ZeroLogger {
 	multi := zerolog.MultiLevelWriter(writers...)
 
 	l := &ZeroLogger{
-		Logger: zerolog.New(multi),
+		Logger:     zerolog.New(multi),
+		SampleRate: 1,
 	}
 	l.cfg = CfgLogger{
 		BlacklistedTags: []string{},
@@ -187,12 +189,21 @@ func (l *ZeroLogger) Panicm(msg string, meta *zerolog.Event, tags ...string) {
 }
 
 func (l *ZeroLogger) ShouldSkipEvent(tags []string) bool {
+	if l.SampleRate < 1 {
+		rNum := generator.Float32()
+		if rNum <= l.SampleRate {
+			return false
+		}
+	}
+
 	if ContainImportantTags(l, tags) {
 		return false
 	}
+
 	if ContainBlacklistedTags(l, tags) {
 		return true
 	}
+
 	return false
 }
 
