@@ -31,7 +31,7 @@ const (
 )
 
 type (
-	Logger struct {
+	ZapLogger struct {
 		*zap.Logger
 		SampleRate float32
 	}
@@ -41,7 +41,7 @@ var (
 	generator = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
-func NewLogger(encodeAsJSON bool, config zapcore.EncoderConfig, l zapcore.Level, output ...zapcore.WriteSyncer) *Logger {
+func NewLogger(encodeAsJSON bool, config zapcore.EncoderConfig, l zapcore.Level, output ...zapcore.WriteSyncer) *ZapLogger {
 	encoder := zapcore.NewConsoleEncoder(config)
 	if encodeAsJSON {
 		encoder = zapcore.NewJSONEncoder(config)
@@ -57,11 +57,11 @@ func NewLogger(encodeAsJSON bool, config zapcore.EncoderConfig, l zapcore.Level,
 
 	zapLogger := zap.New(zapcore.NewCore(encoder, zapcore.NewMultiWriteSyncer(writers...), zap.NewAtomicLevelAt(l)))
 
-	return &Logger{Logger: zapLogger, SampleRate: 1}
+	return &ZapLogger{Logger: zapLogger, SampleRate: 1}
 }
 
 // With wrapper to save SampleRate option
-func (log *Logger) With(fields ...zap.Field) *Logger {
+func (log *ZapLogger) With(fields ...zap.Field) *ZapLogger {
 	if len(fields) == 0 {
 		return log
 	}
@@ -72,7 +72,7 @@ func (log *Logger) With(fields ...zap.Field) *Logger {
 }
 
 // Log wrapper to implement custom sampler logic
-func (log *Logger) Log(lvl zapcore.Level, msg string, fields ...zap.Field) {
+func (log *ZapLogger) Log(lvl zapcore.Level, msg string, fields ...zap.Field) {
 
 	if log.SampleRate < 1 {
 		rNum := generator.Float32()
@@ -86,7 +86,7 @@ func (log *Logger) Log(lvl zapcore.Level, msg string, fields ...zap.Field) {
 	}
 }
 
-func (log *Logger) clone() *Logger {
+func (log *ZapLogger) clone() *ZapLogger {
 	l := *log
 
 	return &l

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.uber.org/zap"
 )
 
@@ -18,7 +19,8 @@ const (
 )
 
 var (
-	ErrNotConnected = errors.New("cannot send stats, not connected to StatsD server")
+	ErrNotConnected     = errors.New("cannot send stats, not connected to StatsD server")
+	ErrEmptyUnmarshaler = errors.New("cannot parse input data, unmarshaler is not defined")
 
 	statsdKey = []byte("\"statsd\":")
 
@@ -28,6 +30,8 @@ var (
 )
 
 type (
+	unmarshalerFunc func(p []byte) (StatsdData, error)
+
 	socketType string
 
 	Tags map[string]string
@@ -40,22 +44,28 @@ type (
 	}
 
 	StatsdClient struct {
-		conn       net.Conn
-		addr       string
-		prefix     string
-		sockType   socketType
-		timeout    time.Duration
-		sampleRate int
+		conn        net.Conn
+		addr        string
+		prefix      string
+		sockType    socketType
+		timeout     time.Duration
+		sampleRate  int
+		unmarshaler unmarshalerFunc
 	}
 )
 
 func NewStatsdClient(addr string, prefix string, timeout time.Duration, sampleRate int) *StatsdClient {
 	return &StatsdClient{
-		addr:       addr,
-		prefix:     prefix,
-		timeout:    timeout,
-		sampleRate: sampleRate,
+		addr:        addr,
+		prefix:      prefix,
+		timeout:     timeout,
+		sampleRate:  sampleRate,
+		unmarshaler: defaultUnmarshaler,
 	}
+}
+
+func (c *StatsdClient) SetUnmarshaler(f unmarshalerFunc) {
+	c.unmarshaler = f
 }
 
 func (c *StatsdClient) CreateUDPSocket() error {
@@ -151,10 +161,14 @@ func (c *StatsdClient) Write(p []byte) (n int, err error) {
 		return
 	}
 
-	data := struct {
-		Statsd StatsdData `json:"statsd"`
-	}{}
-	if err = json.Unmarshal(p, &data); err != nil {
+	if c.unmarshaler == nil {
+		err = ErrEmptyUnmarshaler
+		n = 0
+		return
+	}
+
+	data, err := c.unmarshaler(p)
+	if err != nil {
 		n = 0
 		return
 	}
@@ -168,38 +182,38 @@ func (c *StatsdClient) Write(p []byte) (n int, err error) {
 		sampleRate = float32(c.sampleRate) / 100
 	}
 
-	value := int64(data.Statsd.Value.(float64))
-	switch data.Statsd.Type {
+	value := int64(data.Value.(float64))
+	switch data.Type {
 	case "gauge":
-		if _, err = c.GaugeSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+		if _, err = c.GaugeSampled(data.Name, value, data.Tags, sampleRate); err != nil {
 			n = 0
 		}
 	case "counter":
-		if _, err = c.CounterSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+		if _, err = c.CounterSampled(data.Name, value, data.Tags, sampleRate); err != nil {
 			n = 0
 		}
 	case "increment":
-		if _, err = c.IncrementSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+		if _, err = c.IncrementSampled(data.Name, value, data.Tags, sampleRate); err != nil {
 			n = 0
 		}
 	case "decrement":
-		if _, err = c.DecrementSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+		if _, err = c.DecrementSampled(data.Name, value, data.Tags, sampleRate); err != nil {
 			n = 0
 		}
 	case "timing":
-		if _, err = c.TimingSampled(data.Statsd.Name, value, data.Statsd.Tags, sampleRate); err != nil {
+		if _, err = c.TimingSampled(data.Name, value, data.Tags, sampleRate); err != nil {
 			n = 0
 		}
 	case "set":
-		if _, err = c.Set(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+		if _, err = c.Set(data.Name, value, data.Tags); err != nil {
 			n = 0
 		}
 	case "gauge_delta":
-		if _, err = c.GaugeDelta(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+		if _, err = c.GaugeDelta(data.Name, value, data.Tags); err != nil {
 			n = 0
 		}
 	case "histogram":
-		if _, err = c.Histogram(data.Statsd.Name, value, data.Statsd.Tags); err != nil {
+		if _, err = c.Histogram(data.Name, value, data.Tags); err != nil {
 			n = 0
 		}
 	}
@@ -212,13 +226,22 @@ func (c *StatsdClient) Sync() error {
 	return nil
 }
 
-func (c *StatsdClient) Field(t, name string, value interface{}, tags Tags) zap.Field {
+func (c *StatsdClient) FieldZap(t, name string, value interface{}, tags Tags) zap.Field {
 	return zap.Any("statsd", map[string]interface{}{
 		"type":  t,
 		"name":  name,
 		"value": value,
 		"tags":  tags,
 	})
+}
+
+func (c *StatsdClient) FieldZero(t, name string, value interface{}, tags Tags) *zerolog.Event {
+	return zerolog.Dict().Dict("statsd",
+		zerolog.Dict().
+			Str("type", t).
+			Str("name", name).
+			Interface("value", value).
+			Interface("tags", tags))
 }
 
 func (c *StatsdClient) send(stat string, format string, value interface{}, tags Tags, sampleRate float32) (int, error) {
@@ -306,4 +329,13 @@ func formatTags(tags Tags, buff *bytes.Buffer) (int, error) {
 	}
 
 	return b, nil
+}
+
+func defaultUnmarshaler(p []byte) (StatsdData, error) {
+	data := struct {
+		Statsd StatsdData `json:"statsd"`
+	}{}
+	err := json.Unmarshal(p, &data)
+
+	return data.Statsd, err
 }
